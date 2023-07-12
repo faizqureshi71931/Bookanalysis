@@ -1,0 +1,60 @@
+import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.functions;
+import org.apache.spark.sql.Column;
+
+public class BookAnalysis {
+
+    public static void main(String[] args) {
+        // Set up SparkSession
+        SparkSession spark = SparkSession.builder()
+                .appName("BookAnalysis")
+                .master("local[*]") // Set the master URL
+                .getOrCreate();
+
+        // Download the file from URL
+        String url = "https://www.gutenberg.org/files/1514/1514-0.txt";
+        String localPath = "C:\\Spark\\downloaded files";
+        downloadFile(url, localPath);
+
+        // Read the local file
+        Dataset<Row> bookText = spark.read().text(localPath).select("value");
+
+        // Tokenize the text
+        Dataset<Row> bookWords = bookText
+                .select(functions.explode(functions.split(functions.lower(new Column("value")), "\\W+")).alias("word"));
+
+        // Filter out empty words and common stop words
+        String[] stopWords = {"the", "and", "of", "to", "in", "a", "is", "that", "it", "with", "as"};
+        Dataset<Row> filteredWords = bookWords
+                .filter(functions.col("word").notEqual("").and(functions.not(functions.array_contains(functions.lit(stopWords), functions.col("word")))));
+
+        // Perform word counting
+        Dataset<Row> wordCounts = filteredWords.groupBy("word").count();
+
+        // Get the top 5 most frequent words
+        Dataset<Row> topWords = wordCounts.orderBy(functions.col("count").desc()).limit(5);
+
+        // Display the top 5 words
+        System.out.println("\nTop 5 Words:");
+        topWords.show(false);
+
+        // Number of instances in the book
+        long numInstances = filteredWords.count();
+        System.out.println("\nNumber of Instances in the Book: " + numInstances);
+
+        // Stop SparkSession
+        spark.stop();
+    }
+
+    private static void downloadFile(String url, String localPath) {
+        try {
+            java.net.URL fileUrl = new java.net.URL(url);
+            java.nio.file.Path filePath = java.nio.file.Paths.get(localPath);
+            java.nio.file.Files.copy(fileUrl.openStream(), filePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (java.io.IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
